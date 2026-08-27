@@ -1,0 +1,189 @@
+{
+  "name": "Content Engine - Google Places Discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "content-engine/discovery",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Discovery Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -760,
+        0
+      ],
+      "webhookId": "content-engine-discovery"
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $json.body ?? $json;\nconst jobId = p.jobId;\nconst country = p.country;\nconst city = p.city;\nconst industry = p.industry;\nconst niche = p.niche;\nconst volume = Math.min(Math.max(Number(p.volume || 25),1),500);\nif (!jobId || !country || !city || !industry || !niche) throw new Error('Missing jobId/country/city/industry/niche');\nreturn [{json:{jobId,country,city,industry,niche,volume,query:`${niche} in ${city}, ${country}`}}];"
+      },
+      "id": "prep-1",
+      "name": "Prepare Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://places.googleapis.com/v1/places:searchText",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Goog-Api-Key",
+              "value": "={{ $env.GOOGLE_PLACES_API_KEY }}"
+            },
+            {
+              "name": "X-Goog-FieldMask",
+              "value": "places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.googleMapsUri,places.rating,places.userRatingCount,places.types,businessStatus"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "textQuery",
+              "value": "={{ $json.query }}"
+            },
+            {
+              "name": "pageSize",
+              "value": "={{ Math.min($json.volume,20) }}"
+            },
+            {
+              "name": "regionCode",
+              "value": "={{ $json.country === 'UK' ? 'GB' : $json.country === 'Canada' ? 'CA' : '' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "places-1",
+      "name": "Google Places Text Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Prepare Search').first().json;\nconst places = Array.isArray($json.places) ? $json.places : [];\nconst clean = v => String(v ?? '').trim();\nconst leads = places.slice(0,input.volume).map(p => ({\n  leadId: p.id || undefined,\n  company: clean(p.displayName?.text),\n  industry: input.industry,\n  niche: input.niche,\n  country: input.country,\n  city: input.city,\n  address: clean(p.formattedAddress),\n  phone: clean(p.internationalPhoneNumber || p.nationalPhoneNumber),\n  website: clean(p.websiteUri),\n  rating: p.rating ?? null,\n  reviews: p.userRatingCount ?? null,\n  placeId: clean(p.id),\n  googleMapsUri: clean(p.googleMapsUri),\n  status: 'New',\n  source: 'Google Places API'\n}));\nreturn [{json:{jobId:input.jobId, leads}}];"
+      },
+      "id": "normalize-1",
+      "name": "Normalize Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_BASE_URL }}/api/discovery/{{ $json.jobId }}/results",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET || '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "leads",
+              "value": "={{ JSON.stringify($json.leads) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "callback-1",
+      "name": "Send Results to Render",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Discovery Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Search": {
+      "main": [
+        [
+          {
+            "node": "Google Places Text Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Places Text Search": {
+      "main": [
+        [
+          {
+            "node": "Normalize Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Leads": {
+      "main": [
+        [
+          {
+            "node": "Send Results to Render",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "content-engine-v2",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
