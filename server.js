@@ -7,9 +7,10 @@ dotenv.config();
 
 const app = express();
 app.use(cors({
-  origin: (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim()),
-  methods: ["GET","POST","OPTIONS"],
-  allowedHeaders: ["Content-Type","Authorization","X-API-Key"]
+  origin: true,
+  methods: ["GET", "POST", "OPTIONS", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Webhook-Secret"],
+  credentials: false
 }));
 app.use(express.json({limit:"2mb"}));
 
